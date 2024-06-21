@@ -1,0 +1,105 @@
+if (NODE_CLASS_TYPE_SET.contains(this.nodeClass) || NodeClass.Method.equals(this.nodeClass))
+			{
+				events = new TreeMap<>();
+				
+				// first if we deal with BaseEventType or a subtype thereof, we do not
+				// need to do anything else but create the EventType object for this node.
+				if (this.isSubtypeOf(Identifiers.BaseEventType))
+				{
+					String eventTypeName = getNamespacedName();
+					EventType eventType = new EventType(eventTypeName,this.nodeId.toString());
+					setEventTypeValues(eventType);
+					events.put(eventTypeName,eventType);
+				}
+				else
+				{
+					// Second we look for all the events that are generated directly by this type
+					for (TreeMap<String,NodeIdReference> refList: children.values())
+					{
+						NodeIdNode refType = refList.firstEntry().getValue().referenceType;
+						
+						// GeneratesEvent Reference Type: The semantic of this ReferenceType is to identify the types of Events, 
+						// instances of ObjectTypes or VariableTypes may generate and Methods may generate on each Method call. 
+						// The SourceNode of References of this type shall be an ObjectType, a VariableType or a Method. 
+						// The TargetNode of this ReferenceType shall be an ObjectType representing EventTypes, that is, the BaseEventType or one of its subtypes.
+						// GeneratesEvent References are optional, i.e. Objects may generate Events of an EventType that is not exposed by its ObjectType.
+
+						if (refType.isSubtypeOf(Identifiers.GeneratesEvent))
+						{
+							// the target of these references should be of BaseEventType or a sub type of it
+							for (NodeIdReference ref: refList.values())
+							{
+								TreeMap<String,EventType> moreEvents = ref.target.getEventTypes();
+								for (Entry<String,EventType> entry: moreEvents.entrySet())
+								{
+									String key = entry.getKey();
+									EventType value = entry.getValue();
+									if (!events.containsKey(key))
+										events.put(key,value);
+								}
+							}
+						}
+					}
+					
+					// Second we climb up the type hierarchy and collect from all the super types as well
+					TreeMap<String,NodeIdReference> superTypes = ancestors.get(Identifiers.HasSubtype);
+					if (superTypes != null)
+					{
+						for (NodeIdReference ref: superTypes.values())
+						{
+							TreeMap<String,EventType> moreEvents = ref.target.getEventTypes();
+							for (Entry<String,EventType> entry: moreEvents.entrySet())
+							{
+								String key = entry.getKey();
+								EventType value = entry.getValue();
+								if (!events.containsKey(key))
+									events.put(key,value);
+							}
+						}
+					}
+				}
+			}
+			else // For NodeClass - Object and Variable
+			{
+				// first we get all the eventTypes from this node's type
+				NodeIdNode typeNode = getTypeNode();
+				if (typeNode != null){
+					//RTC issue: 77826
+					//Every time a new source item is selected while creating or updating client items, event types should be refreshed.
+					//As previously updated event types were coming inside Type node, we need to clear it, so that new event types can be loaded.
+					typeNode.clearEventTypes();
+					events = typeNode.getEventTypes();
+				}
+				else
+					events = new TreeMap<>();
+					
+				// second we get all the event types from nodes referenced by this node as event sources
+				for (TreeMap<String,NodeIdReference> refList: children.values())
+				{
+					NodeIdNode refType = refList.firstEntry().getValue().referenceType;
+					
+					// HasEventSource: The SourceNode of this ReferenceType shall be an Object that is a source of event subscriptions. 
+					// A source of event subscriptions is an Object that has its SubscribeToEvents bit set within the EventNotifier Attribute.
+					// The TargetNode of this ReferenceType can be a Node of any NodeClass that can generate event notifications 
+					// via a subscription to the reference source 
+					
+					// HasCondition: The semantic of this ReferenceType is to specify the relationship between a ConditionSource and its Conditions. 
+					// Each ConditionSource shall be the target of a HasEventSource Reference or a sub type of HasEventSource.
+	
+					if (refType.isSubtypeOf(Identifiers.HasEventSource) ||
+						refType.isSubtypeOf(Identifiers.HasCondition))
+					{
+						// second we add the eventTypes from all event sources and notifiers
+						for (NodeIdReference ref: refList.values())
+						{
+							TreeMap<String,EventType> moreEvents = ref.target.getEventTypes();
+							for (Entry<String,EventType> entry: moreEvents.entrySet())
+							{
+								String key = entry.getKey();
+								EventType value = entry.getValue();
+								if (!events.containsKey(key))
+									events.put(key, value);
+							}
+						}
+					}
+				}
